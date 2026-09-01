@@ -27,22 +27,8 @@ with AWS Lambda Power Tuning. Load-test numbers are measured before and after tu
 
 ## Architecture
 
-```
-                    ┌──────────────┐
-  Client / Postman ─▶  API Gateway  │  REST API, throttling, usage plan
-                    └──────┬───────┘
-                           │ AWS_PROXY integration
-                    ┌──────▼───────┐
-                    │    Lambda    │  Python 3.12, CRUD handler
-                    │  (tuned MB)  │  X-Ray traced, structured JSON logs
-                    └──────┬───────┘
-                           │ IAM role, least privilege
-                    ┌──────▼───────┐
-                    │   DynamoDB   │  On-demand billing, PK: id
-                    └──────────────┘
-```
-
-![Architecture diagram](docs/images/architecture.png)
+![Architecture diagram](<img width="3750" height="1875" alt="CRUD" src="https://github.com/user-attachments/assets/b143ef8a-0858-48f6-aecd-2541342e17a2" />
+)
 
 **Why these services**
 

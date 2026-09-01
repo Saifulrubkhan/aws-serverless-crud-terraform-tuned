@@ -329,10 +329,3 @@ Being clear about the gaps is part of the point:
 - Multi-region with DynamoDB global tables if the RTO calls for it
 
 ---
-
-## Credits
-
-Built as part of the Fast Track to AWS Solutions Architect Bootcamp (Ninth Cohort) with
-[Rajdeep Saha](https://github.com/saha-rajdeep). Base lab:
-[saha-rajdeep/serverless-lab](https://github.com/saha-rajdeep/serverless-lab). The IaC,
-CI/CD, observability, and cost analysis are my additions.

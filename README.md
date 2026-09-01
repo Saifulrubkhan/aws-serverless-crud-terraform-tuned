@@ -27,8 +27,7 @@ with AWS Lambda Power Tuning. Load-test numbers are measured before and after tu
 
 ## Architecture
 
-![Architecture diagram](<img width="3750" height="1875" alt="CRUD" src="https://github.com/user-attachments/assets/b143ef8a-0858-48f6-aecd-2541342e17a2" />
-)
+![Architecture diagram](https://github.com/user-attachments/assets/b143ef8a-0858-48f6-aecd-2541342e17a2)
 
 **Why these services**
 

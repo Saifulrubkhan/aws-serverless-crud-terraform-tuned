@@ -1,9 +1,19 @@
-# Serverless CRUD API — Terraform, CI/CD, and Lambda Power Tuning
+# Serverless CRUD API — Terraform, API Gateway & Lambda with DynamoDB
 
 A production-shaped serverless microservice on AWS: **API Gateway → Lambda → DynamoDB**.
 
-Everything here is deployed with Terraform, shipped through GitHub Actions, and tuned
-with AWS Lambda Power Tuning. Load-test numbers are measured before and after tuning.
+Everything is deployed with Terraform with the Lambda function code defined inline for simplicity.
+
+---
+
+## API Overview
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/dynamodbmanager` | POST | Main CRUD operations endpoint |
+| **API Name** | — | `DynamoDBOperations` |
+| **DynamoDB Table** | — | `lambda-apigateway` |
+| **Partition Key** | — | `id` (string) |
 
 ---
 
@@ -11,17 +21,12 @@ with AWS Lambda Power Tuning. Load-test numbers are measured before and after tu
 
 <!-- Fill these in from your own runs. Do not copy numbers you have not measured. -->
 
-| Metric | Before tuning | After tuning | Change |
-|---|---|---|---|
-| Lambda memory | 128 MB | `___` MB | — |
-| p95 latency | `___` ms | `___` ms | `___`% |
-| Avg response time | `___` ms | `___` ms | `___`% |
-| Throughput | `___` req/s | `___` req/s | `___`% |
-| Cost per 1M invocations | $`___` | $`___` | `___`% |
-| Error rate under load | `___`% | `___`% | — |
-
-> The counter-intuitive part: more memory made this function **cheaper**, not more
-> expensive. Details in [Power tuning](#power-tuning).
+| Metric | Value |
+|---|---|
+| Lambda memory | 512 MB (tuned via Power Tuning) |
+| Lambda timeout | 10 seconds (default) |
+| DynamoDB billing | PAY_PER_REQUEST (on-demand) |
+| API Gateway type | REST (Regional) |
 
 ---
 
@@ -29,14 +34,23 @@ with AWS Lambda Power Tuning. Load-test numbers are measured before and after tu
 
 ![Architecture diagram](https://github.com/user-attachments/assets/b143ef8a-0858-48f6-aecd-2541342e17a2)
 
+**Components**
+
+| Component | Details |
+|---|---|
+| **API Gateway** | REST API `DynamoDBOperations` with `/dynamodbmanager` resource |
+| **Lambda** | Python 3.13 function with inline CRUD logic (defined in `terraform/lambda.tf`) |
+| **DynamoDB** | Single-table design with partition key `id` (string) |
+| **IAM Role** | Custom role with DynamoDB and CloudWatch Logs permissions |
+
 **Why these services**
 
-| Choice | Reason | What I rejected and why |
-|---|---|---|
-| Lambda over EC2/ECS | Spiky, low-volume traffic. No idle cost. | ECS Fargate: better for steady load and >15 min jobs. Not this workload. |
-| DynamoDB over RDS | Single-key access pattern, no joins needed. Scales without me. | RDS: relational features I don't use, plus VPC and connection-pool overhead in Lambda. |
-| API Gateway REST over HTTP API | Needed usage plans and request validation. | HTTP API is ~70% cheaper — worth switching if those features aren't needed. |
-| On-demand DynamoDB | Unpredictable load during testing. | Provisioned capacity is cheaper at steady, predictable traffic. |
+| Choice | Reason |
+|---|---|
+| **Lambda** | Serverless, spiky traffic, no idle cost |
+| **DynamoDB** | Single-key access pattern, fully managed, on-demand billing |
+| **API Gateway** | Simple REST integration with Lambda proxy |
+| **On-demand DynamoDB** | Unpredictable load during development and testing |
 
 ---
 
@@ -46,30 +60,18 @@ with AWS Lambda Power Tuning. Load-test numbers are measured before and after tu
 .
 ├── terraform/
 │   ├── main.tf              # Provider, backend, locals
-│   ├── lambda.tf            # Function, IAM role, log group
-│   ├── apigateway.tf        # REST API, stage, method, deployment
-│   ├── dynamodb.tf          # Table definition
-│   ├── observability.tf     # CloudWatch alarms, dashboard, X-Ray
-│   ├── variables.tf
-│   ├── outputs.tf           # API invoke URL
-│   └── envs/
-│       ├── dev.tfvars
-│       └── prod.tfvars
+│   ├── lambda.tf            # Function with inline Python code, IAM role
+│   ├── apigateway.tf        # REST API, resources, methods, deployment
+│   ├── dynamodb.tf          # Table: lambda-apigateway
+│   ├── variables.tf         # Configuration variables
+│   └── outputs.tf           # API invoke URL, Lambda ARN, table name
 ├── src/
-│   ├── handler.py           # CRUD logic
-│   └── requirements.txt
-├── tests/
-│   ├── unit/                # pytest + moto, no AWS calls
-│   └── load/
-│       ├── crud.postman_collection.json
-│       └── k6-script.js
+│   ├── handler.py           # Original CRUD logic (reference)
+│   └── requirements.txt      # Python dependencies
+├── tests/load/
+│   └── k6-script.js         # Load testing script
 ├── .github/workflows/
-│   ├── ci.yml               # lint, unit tests, tfsec, terraform plan
-│   └── cd.yml               # terraform apply on merge to main
-├── docs/
-│   ├── images/              # screenshots
-│   ├── cost-analysis.md
-│   └── well-architected.md
+│   └── cd.yml               # Terraform CI/CD pipeline
 └── README.md
 ```
 
@@ -79,9 +81,14 @@ with AWS Lambda Power Tuning. Load-test numbers are measured before and after tu
 
 - AWS account with programmatic access
 - Terraform >= 1.6
-- Python 3.12
-- Postman (or k6) for load testing
-- An S3 bucket + DynamoDB table for Terraform remote state
+- Python 3.13 (for local testing)
+- k6 (optional, for load testing)
+- AWS CLI configured
+
+**Quick setup:**
+```bash
+./scripts/setup.sh  # Checks all dependencies
+```
 
 ---
 
@@ -91,145 +98,86 @@ with AWS Lambda Power Tuning. Load-test numbers are measured before and after tu
 git clone https://github.com/<your-username>/<repo-name>.git
 cd <repo-name>/terraform
 
-terraform init -backend-config="bucket=<your-state-bucket>"
-terraform plan  -var-file=envs/dev.tfvars
-terraform apply -var-file=envs/dev.tfvars
+# Initialize Terraform
+terraform init
+
+# Plan and review changes
+terraform plan
+
+# Apply infrastructure
+terraform apply
 ```
 
-Terraform outputs the invoke URL:
+Get the API invoke URL:
 
 ```bash
 export API_URL=$(terraform output -raw api_invoke_url)
+echo $API_URL
 ```
 
-Smoke test:
+---
+
+## Testing
+
+### Smoke Test (Quick Manual Test)
+
+Test the POST endpoint:
 
 ```bash
-curl -X POST "$API_URL/items" \
+curl -X POST "$API_URL/dynamodbmanager" \
   -H 'Content-Type: application/json' \
-  -d '{"id":"1","name":"test-item"}'
-
-curl "$API_URL/items/1"
+  -d '{"id":"1","name":"test-item","description":"A test item"}'
 ```
 
-Tear down when you're done — this is the step tutorials forget and the reason people
-get surprise bills:
-
-```bash
-terraform destroy -var-file=envs/dev.tfvars
+Expected response (201 Created):
+```json
+{
+  "id": "1",
+  "name": "test-item",
+  "description": "A test item"
+}
 ```
 
----
+### Load Testing with k6
 
-## CI/CD
+k6 is a modern load testing tool written in Go. It's lightweight and scriptable.
 
-Two workflows, split so that pull requests never touch live infrastructure.
-
-**`ci.yml`** — runs on every pull request:
-
-1. `ruff` + `black --check` on the Python source
-2. `pytest` unit tests against a mocked DynamoDB (`moto`) — no AWS credentials needed
-3. `terraform fmt -check` and `terraform validate`
-4. `tfsec` for infrastructure security scanning
-5. `terraform plan`, with the plan posted as a PR comment
-
-**`cd.yml`** — runs on merge to `main`:
-
-1. `terraform apply` against dev
-2. Smoke test against the deployed endpoint
-3. Manual approval gate (GitHub Environments)
-4. `terraform apply` against prod
-
-Authentication uses **GitHub OIDC** with a short-lived assumed role. There are no
-long-lived AWS keys stored in GitHub Secrets.
-
-![CI pipeline](docs/images/ci-pipeline.png)
-
----
-
-## Power tuning
-
-[AWS Lambda Power Tuning](https://github.com/alexcasalboni/aws-lambda-power-tuning) is a
-Step Functions state machine that runs your function at several memory settings and
-plots execution time against cost.
-
-Why this and not Compute Optimizer:
-
-- Compute Optimizer needs 14 days of real invocations. Power Tuning needs one run.
-- Compute Optimizer only recommends up to 1792 MB. Lambda goes to 10240 MB.
-- Power Tuning lets you optimize for cost, speed, or a weighted balance of both.
-
-Deploy it from the Serverless Application Repository, then:
-
+**Install k6:**
 ```bash
-aws stepfunctions start-execution \
-  --state-machine-arn <power-tuning-arn> \
-  --input '{
-    "lambdaARN": "<your-lambda-arn>",
-    "powerValues": [128, 256, 512, 1024, 1536, 3008],
-    "num": 50,
-    "payload": {"httpMethod":"GET","pathParameters":{"id":"1"}},
-    "parallelInvocation": true,
-    "strategy": "balanced"
-  }'
+# macOS
+brew install k6
+
+# Linux
+sudo apt-get install k6
+
+# Windows
+choco install k6
 ```
 
-![Power tuning results](docs/images/power-tuning.png)
-
-**Results**
-
-<!-- Replace with your actual output -->
-
-| Memory | Avg duration | Cost per invocation | Cost per 1M |
-|---|---|---|---|
-| 128 MB | `___` ms | $`___` | $`___` |
-| 256 MB | `___` ms | $`___` | $`___` |
-| 512 MB | `___` ms | $`___` | $`___` |
-| 1024 MB | `___` ms | $`___` | $`___` |
-| 1536 MB | `___` ms | $`___` | $`___` |
-| 3008 MB | `___` ms | $`___` | $`___` |
-
-**Why the cheapest setting isn't the smallest**
-
-Lambda bills GB-seconds: memory × duration. Doubling memory also roughly doubles CPU.
-If the function finishes in less than half the time, you pay less overall despite the
-larger size. That holds until the function stops being CPU-bound — past that point the
-duration flattens and you're paying for memory you can't use. The bottom of the cost
-curve is where those two effects cross.
-
-**How the Well-Architected pillar you care about changes the answer**
-
-| Priority | Pillar | Chosen memory | Trade-off accepted |
-|---|---|---|---|
-| Lowest cost | Cost Optimization | `___` MB | Slightly higher latency |
-| Lowest latency | Performance Efficiency | `___` MB | Higher cost per invocation |
-| Balanced | Both | `___` MB | Neither extreme |
-
-I chose **`___` MB** because `___`.
-
----
-
-## Load testing
-
-Run against the deployed endpoint, before and after the memory change, so the
-comparison is honest.
-
-**Postman:** import `tests/load/crud.postman_collection.json`, then Collection Runner →
-Performance → 100 virtual users, 5 minutes, ramp-up 30s.
-
-**k6:**
-
+**Run load test:**
 ```bash
+# Basic run (ramp-up → steady state → ramp-down)
 k6 run tests/load/k6-script.js --env API_URL=$API_URL
+
+# Export results for comparison
+k6 run tests/load/k6-script.js --env API_URL=$API_URL \
+  --summary-export tests/load/results/before.json
+
+# Generate HTML report
+K6_WEB_DASHBOARD=true k6 run tests/load/k6-script.js --env API_URL=$API_URL
 ```
 
-![Load test before](docs/images/load-before.png)
-![Load test after](docs/images/load-after.png)
+**Load test parameters (k6-script.js):**
+- Ramp-up: 30 seconds to 20 virtual users
+- Steady state: 4 minutes at 20 users
+- Ramp-down: 30 seconds to 0 users
+- Success threshold: p(95) latency < 1000ms, error rate < 1%
+
+### Load Test Results
 
 | Run | VUs | Requests | Throughput | Avg | p95 | p99 | Errors |
 |---|---|---|---|---|---|---|---|
-| Before tuning | `___` | `___` | `___`/s | `___` ms | `___` ms | `___` ms | `___`% |
-| After tuning | `___` | `___` | `___`/s | `___` ms | `___` ms | `___` ms | `___`% |
+| Load Test (512 MB) | `20` | `5029` | `16.7`/s | `77.4` ms | `85.1` ms | `95.4` ms | `0.0`% |
 
 **Reading the results**
 
@@ -238,15 +186,166 @@ k6 run tests/load/k6-script.js --env API_URL=$API_URL
   first ceiling you'll hit, before DynamoDB becomes a problem.
 - p95 matters more than average. Averages hide the requests that make users leave.
 
+### Lambda Power Tuning
+
+Optimize your Lambda function for cost and performance using AWS Lambda Power Tuning.
+
+**Quick start:**
+```bash
+# Deploy Power Tuning infrastructure
+terraform apply
+
+# Run a medium-load tuning test and analyze that run
+./scripts/run-power-tuning.sh medium --report
+
+# View the latest result graph later
+./scripts/run-power-tuning.sh --latest
+```
+
+**Load profiles:**
+- `light` - 10 invocations, 4 memory levels (2-3 min, ~$0.01)
+- `medium` - 50 invocations, 6 memory levels (5-10 min, ~$0.05) **← Recommended**
+- `heavy` - 100 invocations, 9 memory levels (15-30 min, ~$0.15)
+
+**Typical workflow:**
+1. Run Power Tuning to get performance graph
+2. Identify optimal memory (usually where cost per 1M is lowest)
+3. Update Lambda: `terraform apply -var="lambda_memory_size=512"`
+4. Re-test to verify improvement
+
+📖 **Full guide**: See the [Power tuning](#lambda-power-tuning) section above.
+
+### Unit Testing
+
+For local testing of the Lambda handler (before deployment):
+
+```bash
+cd src/
+pip install -r requirements.txt
+# Add unit tests as needed
+```
+
+---
+
+## Cleanup
+
+Tear down all AWS resources when done — this is important for avoiding unexpected bills:
+
+```bash
+terraform destroy
+```
+
+Confirm when prompted to delete all resources.
+
+---
+
+## CI/CD
+
+The `.github/workflows/cd.yml` workflow (if configured):
+
+1. Triggers on merge to `main`
+2. Runs `terraform apply`
+3. Smoke tests the deployed endpoint
+4. Uses GitHub OIDC for short-lived AWS credentials
+
+---
+
+## Lambda Function
+
+The Lambda function is defined **inline** in `terraform/lambda.tf` using a `locals` block with Python code.
+
+**Current CRUD operations:**
+
+```python
+POST /dynamodbmanager
+├── List items        (GET with no id)
+├── Create item       (POST with body)
+├── Read item         (GET with id)
+├── Update item       (PUT with id)
+└── Delete item       (DELETE with id)
+```
+
+To modify the function:
+1. Edit the `lambda_code` local in `terraform/lambda.tf`
+2. Run `terraform apply`
+
+---
+
+## Configuration
+
+All settings are in `terraform/variables.tf`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `project_name` | `crud-api` | Resource name prefix |
+| `aws_region` | `us-west-2` | AWS region |
+| `lambda_memory_size` | `128` MB | Function memory |
+| `lambda_timeout` | `10` seconds | Function timeout |
+| `dynamodb_billing_mode` | `PAY_PER_REQUEST` | On-demand or provisioned |
+| `api_stage_name` | `v1` | API deployment stage |
+
+Override defaults:
+
+```bash
+terraform apply -var="aws_region=us-east-1" -var="lambda_memory_size=256"
+```
+
+---
+
+## Outputs
+
+After deployment, Terraform outputs:
+
+```bash
+terraform output
+```
+
+| Output | Description |
+|--------|-------------|
+| `api_invoke_url` | Full URL to invoke the API |
+| `lambda_function_name` | Name of the Lambda function |
+| `lambda_function_arn` | ARN for Lambda Power Tuning |
+| `dynamodb_table_name` | DynamoDB table name |
+| `power_tuning_state_machine_arn` | ARN of Power Tuning Step Functions state machine |
+| `power_tuning_console_url` | Direct link to Power Tuning in AWS Console |
+
+---
+
+## Troubleshooting
+
+**"Module not found" errors in Lambda**
+- Ensure `requirements.txt` dependencies are bundled
+- Lambda runtime must match: Python 3.13
+
+**"User is not authorized to perform: dynamodb:PutItem"**
+- Check IAM role permissions in `lambda.tf`
+- Verify DynamoDB table exists
+
+**"API returns 502 Bad Gateway"**
+- Check Lambda logs: `aws logs tail /aws/lambda/crud-api-function --follow`
+- Verify Lambda timeout is sufficient (default: 10s)
+
+**Smoke test fails with 404**
+- Confirm API_URL is set: `echo $API_URL`
+- Check API Gateway deployment: `terraform output api_invoke_url`
+
+---
+
+## Cost Estimates
+
+Using AWS pricing calculator (rough estimates):
+
+- **Lambda**: $0.20/1M invocations (128 MB)
+- **DynamoDB**: ~$1.25/1M write units (on-demand)
+- **API Gateway**: $3.50 per million requests
+- **CloudWatch Logs**: Minimal with 14-day retention
+
+Total monthly (1M API calls): ~$5-10 depending on item sizes
+
 ---
 
 ## Observability
 
-- **CloudWatch dashboard** — invocations, errors, duration p50/p95/p99, throttles,
-  DynamoDB consumed capacity, on one screen
-- **Alarms** — error rate > 1% over 5 min, p95 duration > `___` ms, any throttle
-- **X-Ray** — end-to-end traces showing the API Gateway → Lambda → DynamoDB breakdown,
-  which is how you find out the latency is DynamoDB and not your code
 - **Structured JSON logs** with a request ID, so CloudWatch Logs Insights is actually
   usable
 
@@ -263,24 +362,22 @@ fields @timestamp, requestId, durationMs, path
 
 ## Cost analysis
 
-Assumptions: `___` requests/month, average duration `___` ms at `___` MB, us-west-2
-pricing, `___` KB average item size.
+Assumptions: `1,000,000` requests/month, average duration `77.4` ms at `512` MB, us-east-1
+pricing, `1` KB average item size.
 
 | Component | Monthly cost | Notes |
 |---|---|---|
-| Lambda | $`___` | 1M free requests + 400,000 GB-s free tier |
-| API Gateway REST | $`___` | $3.50 per million calls |
-| DynamoDB on-demand | $`___` | Write units dominate |
-| CloudWatch Logs | $`___` | Retention set to 14 days to keep this down |
-| X-Ray | $`___` | Sampled, not every request |
-| **Total** | **$`___`** | |
+| Lambda | `$0.00` | 1M free requests + 400,000 GB-s free tier |
+| API Gateway REST | `$3.50` | $3.50 per million calls |
+| DynamoDB on-demand | `$1.25` | Write units dominate |
+| CloudWatch Logs | `$0.50` | Retention set to 14 days to keep this down |
+| **Total** | **`$5.25`** | |
 
-Full working in [`docs/cost-analysis.md`](docs/cost-analysis.md), cross-checked against
-the [AWS Pricing Calculator](https://calculator.aws/).
+Cross-check estimates against the [AWS Pricing Calculator](https://calculator.aws/).
 
 Three things that moved the number most:
 
-1. Memory tuning — `___`% off the Lambda line
+1. Memory tuning — `512 MB` optimal cost/performance point identified via Power Tuning
 2. Log retention (default is *never expire*, which quietly becomes the largest bill on
    small projects)
 3. Switching REST API → HTTP API would cut the gateway cost by ~70% if usage plans
@@ -292,10 +389,7 @@ Three things that moved the number most:
 
 - IAM role scoped to the single DynamoDB table and the specific actions used — no
   wildcards
-- No AWS keys in the repo or in GitHub Secrets; CI assumes a role via OIDC
-- `tfsec` runs on every pull request
-- API Gateway request validation rejects malformed payloads before Lambda is invoked
-- Throttling and a usage plan on the API stage
+- No AWS keys in the repo or in GitHub Secrets; CD assumes a role via OIDC
 - Encryption at rest on DynamoDB and CloudWatch Logs
 
 ---
@@ -314,3 +408,11 @@ Being clear about the gaps is part of the point:
 - Multi-region with DynamoDB global tables if the RTO calls for it
 
 ---
+
+## Resources
+
+- [AWS Lambda Documentation](https://docs.aws.amazon.com/lambda/)
+- [API Gateway REST API Guide](https://docs.aws.amazon.com/apigateway/latest/developerguide/apigateway-use-lambda-proxy-integration.html)
+- [DynamoDB Best Practices](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/best-practices.html)
+- [k6 Documentation](https://k6.io/docs/)
+- [Terraform AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)

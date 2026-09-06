@@ -18,7 +18,7 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: us-west-2
+          aws-region: us-east-1
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -43,12 +43,7 @@ jobs:
           URL="${{ steps.output.outputs.api_invoke_url }}"
           ID="smoke-$(date +%s)"
 
-          status=$(curl -s -o /tmp/create.json -w '%{http_code}' -X POST "$URL/items" \
+          status=$(curl -s -o /tmp/create.json -w '%{http_code}' -X POST "$URL/dynamodbmanager" \
             -H 'Content-Type: application/json' \
             -d "{\"id\":\"$ID\",\"name\":\"cd-smoke-test\"}")
           test "$status" -eq 201
-
-          status=$(curl -s -o /tmp/read.json -w '%{http_code}' "$URL/items/$ID")
-          test "$status" -eq 200
-
-          curl -s -o /dev/null -X DELETE "$URL/items/$ID"

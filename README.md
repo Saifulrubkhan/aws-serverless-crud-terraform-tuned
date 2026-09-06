@@ -175,6 +175,8 @@ K6_WEB_DASHBOARD=true k6 run tests/load/k6-script.js --env API_URL=$API_URL
 
 ### Load Test Results
 
+![k6 Load Test Results](docs/images/k6-load-test.png)
+
 | Run | VUs | Requests | Throughput | Avg | p95 | p99 | Errors |
 |---|---|---|---|---|---|---|---|
 | Load Test (512 MB) | `20` | `5029` | `16.7`/s | `77.4` ms | `85.1` ms | `95.4` ms | `0.0`% |
@@ -187,6 +189,8 @@ K6_WEB_DASHBOARD=true k6 run tests/load/k6-script.js --env API_URL=$API_URL
 - p95 matters more than average. Averages hide the requests that make users leave.
 
 ### Lambda Power Tuning Results
+
+![Lambda Power Tuning Graph](docs/images/power-tuning-graph.png)
 
 | Metric | Benchmark Output |
 |---|---|

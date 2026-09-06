@@ -186,6 +186,18 @@ K6_WEB_DASHBOARD=true k6 run tests/load/k6-script.js --env API_URL=$API_URL
   first ceiling you'll hit, before DynamoDB becomes a problem.
 - p95 matters more than average. Averages hide the requests that make users leave.
 
+### Lambda Power Tuning Results
+
+| Metric | Benchmark Output |
+|---|---|
+| **Optimal Memory** | **512 MB** |
+| **Avg Duration** | `5.33` ms |
+| **Cost per Invocation** | `$0.0000000504` (`$0.0504` / 1M) |
+| **Tuning Execution Cost** | `$0.0006` |
+| **Interactive Graph** | [📊 View Power Tuning Visualization Graph](https://lambda-power-tuning.show/#gAAAAQACAAQABsAL;wcrvQeF6LkFmrapAnTa4QP7UnEASg6RA;Gs2LM2N3WDNjd1gzSYv8M4pZIjSt9540) |
+
+---
+
 ### Lambda Power Tuning
 
 Optimize your Lambda function for cost and performance using AWS Lambda Power Tuning.

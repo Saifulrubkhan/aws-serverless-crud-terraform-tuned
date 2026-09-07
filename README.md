@@ -50,7 +50,7 @@ curl -X POST "$API_URL/dynamodbmanager" \
 
 AWS Lambda Power Tuning was executed across 6 memory configurations to optimize execution speed vs. cost.
 
-![Lambda Power Tuning Graph](docs/images/power-tuning-graph.png?v=3)
+![Lambda Power Tuning Graph](docs/images/power-tuning-graph.png)
 
 | Memory (MB) | Avg Duration | Cost / 1M Invocations | Optimization Summary |
 |---|---|---|---|
